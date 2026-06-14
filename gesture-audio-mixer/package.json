@@ -1,0 +1,22 @@
+{
+  "name": "gesture-audio-mixer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev:https",
+    "dev:https": "set VITE_USE_HTTPS=1&& vite --host --port 5174 --strictPort",
+    "dev:http": "vite --host --port 5175 --strictPort",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host localhost --port 4174 --strictPort"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
+    "@soundtouchjs/audio-worklet": "^2.0.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  }
+}
