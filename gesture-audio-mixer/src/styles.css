@@ -103,6 +103,20 @@ h2 {
   box-shadow: 0 12px 26px rgba(242, 201, 76, 0.2);
 }
 
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(246, 242, 234, 0.86);
+  cursor: pointer;
+  font-weight: 850;
+}
+
 .primary-button:disabled {
   cursor: wait;
   opacity: 0.72;
@@ -549,6 +563,46 @@ h2 {
   padding: 0 4px;
 }
 
+.safety-dialog {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 9, 10, 0.74);
+  backdrop-filter: blur(8px);
+}
+
+.safety-dialog[hidden] {
+  display: none;
+}
+
+.safety-dialog-panel {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 22px;
+  border: 1px solid rgba(242, 201, 76, 0.28);
+  border-radius: 8px;
+  background: #17191b;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.safety-dialog-panel h2 {
+  font-size: 1.35rem;
+}
+
+.safety-dialog-panel p:not(.eyebrow) {
+  color: rgba(246, 242, 234, 0.72);
+}
+
+.safety-dialog-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 10px;
+}
+
 @media (max-width: 1060px) {
   .shell {
     grid-template-columns: 1fr;
@@ -676,6 +730,14 @@ h2 {
 
   .hint {
     font-size: 0.78rem;
+  }
+
+  .safety-dialog-panel {
+    padding: 18px;
+  }
+
+  .safety-dialog-actions {
+    grid-template-columns: 1fr;
   }
 }
 

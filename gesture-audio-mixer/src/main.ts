@@ -220,6 +220,20 @@ app.innerHTML = `
         Pitch mode follows one hand. Advanced mode splits the frame into tone and texture lanes. Headphones strongly recommended.
       </p>
     </aside>
+
+    <div class="safety-dialog" id="headphoneDialog" role="dialog" aria-modal="true" aria-labelledby="headphoneDialogTitle" hidden>
+      <div class="safety-dialog-panel">
+        <p class="eyebrow">Audio safety</p>
+        <h2 id="headphoneDialogTitle">Use headphones before starting</h2>
+        <p>
+          Live microphone monitoring through speakers can create a loud feedback whine. Put on headphones or turn monitoring off before enabling camera and mic.
+        </p>
+        <div class="safety-dialog-actions">
+          <button class="secondary-button" id="cancelHeadphoneWarning" type="button">Cancel</button>
+          <button class="primary-button" id="confirmHeadphones" type="button">I am using headphones</button>
+        </div>
+      </div>
+    </div>
   </main>
 `;
 
@@ -244,6 +258,9 @@ const pitchModeButton = getElement<HTMLButtonElement>("pitchModeButton");
 const advancedModeButton = getElement<HTMLButtonElement>("advancedModeButton");
 const textureCluster = getElement<HTMLElement>("textureCluster");
 const toneHelp = getElement<HTMLElement>("toneHelp");
+const headphoneDialog = getElement<HTMLDivElement>("headphoneDialog");
+const confirmHeadphones = getElement<HTMLButtonElement>("confirmHeadphones");
+const cancelHeadphoneWarning = getElement<HTMLButtonElement>("cancelHeadphoneWarning");
 
 const readouts = {
   pitch: getElement<HTMLElement>("pitchReadout"),
@@ -262,6 +279,7 @@ let audioEngine: GestureAudioEngine | undefined;
 let mediaStream: MediaStream | undefined;
 let animationStarted = false;
 let isLive = false;
+let headphonesConfirmed = false;
 let controlMode: ControlMode = "pitch";
 let pitchMixAmount = 1;
 let previousPalms = new Map<number, { x: number; y: number; at: number }>();
@@ -274,6 +292,17 @@ let fpsAverage = 0;
 
 startButton.addEventListener("click", () => {
   void toggleExperience();
+});
+
+confirmHeadphones.addEventListener("click", () => {
+  headphonesConfirmed = true;
+  hideHeadphoneWarning();
+  void startExperience();
+});
+
+cancelHeadphoneWarning.addEventListener("click", () => {
+  hideHeadphoneWarning();
+  startButton.focus();
 });
 
 monitorToggle.addEventListener("change", () => {
@@ -350,7 +379,21 @@ async function toggleExperience() {
     return;
   }
 
+  if (!headphonesConfirmed && monitorToggle.checked) {
+    showHeadphoneWarning();
+    return;
+  }
+
   await startExperience();
+}
+
+function showHeadphoneWarning() {
+  headphoneDialog.hidden = false;
+  confirmHeadphones.focus();
+}
+
+function hideHeadphoneWarning() {
+  headphoneDialog.hidden = true;
 }
 
 async function startExperience() {
