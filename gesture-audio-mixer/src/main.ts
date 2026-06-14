@@ -40,6 +40,8 @@ type HandRole = {
   landmarks: NormalizedLandmark[];
 };
 
+type ControlMode = "pitch" | "advanced";
+
 type MeterFrame = {
   waveform: Uint8Array<ArrayBuffer>;
   loudnessSamples: Float32Array<ArrayBuffer>;
@@ -72,7 +74,7 @@ if (!app) {
 }
 
 app.innerHTML = `
-  <main class="shell">
+  <main class="shell is-pitch-mode" id="appShell">
     <section class="stage-panel" aria-label="Camera tracking surface">
       <div class="topbar">
         <div>
@@ -93,9 +95,19 @@ app.innerHTML = `
           <span>Use headphones, then allow camera and microphone when prompted.</span>
         </div>
         <div class="center-guide" aria-hidden="true">
-          <span class="pitch-range"></span>
-          <span class="pitch-center-line"></span>
-          <span class="pitch-guide-ring"></span>
+          <span class="pitch-guide">
+            <span class="pitch-range"></span>
+            <span class="pitch-center-line"></span>
+            <span class="pitch-guide-ring"></span>
+          </span>
+          <span class="lane-guide tone-guide">
+            <span class="lane-range"></span>
+            <span class="lane-guide-ring"></span>
+          </span>
+          <span class="lane-guide texture-guide">
+            <span class="lane-range"></span>
+            <span class="lane-guide-ring"></span>
+          </span>
         </div>
         <div class="stage-grid" aria-hidden="true"></div>
       </div>
@@ -130,12 +142,19 @@ app.innerHTML = `
         </div>
       </div>
 
+      <section class="control-cluster compact" aria-label="Control mode">
+        <div class="mode-control app-mode-control">
+          <button class="mode-option is-active" id="pitchModeButton" type="button" aria-pressed="true">Pitch</button>
+          <button class="mode-option" id="advancedModeButton" type="button" aria-pressed="false">Advanced</button>
+        </div>
+      </section>
+
       <section class="control-cluster" aria-label="Tone hand mapping">
         <div class="cluster-heading">
           <span class="role-dot tone-dot"></span>
           <div>
             <h2>Pitch hand</h2>
-            <p>Raise or lower one hand</p>
+            <p id="toneHelp">Raise or lower one hand</p>
           </div>
         </div>
         <div class="readout-grid">
@@ -148,18 +167,18 @@ app.innerHTML = `
             <strong id="shiftReadout">0%</strong>
           </div>
           <div class="readout">
-            <span>Mode</span>
-            <strong id="brightnessReadout">Pitch only</strong>
+            <span>Tone</span>
+            <strong id="brightnessReadout">Simple pitch</strong>
           </div>
         </div>
       </section>
 
-      <section class="control-cluster" aria-label="Texture hand mapping" hidden>
+      <section class="control-cluster advanced-only" id="textureCluster" aria-label="Texture hand mapping" hidden>
         <div class="cluster-heading">
           <span class="role-dot texture-dot"></span>
           <div>
             <h2>Texture hand</h2>
-            <p>Right side of frame</p>
+            <p>Right lane adds character</p>
           </div>
         </div>
         <div class="readout-grid">
@@ -179,11 +198,6 @@ app.innerHTML = `
       </section>
 
       <section class="control-cluster compact" aria-label="Output controls">
-        <div class="mode-control pitch-source-control" aria-label="Pitch diagnostic source">
-          <button class="mode-option is-active" id="livePitchButton" type="button" aria-pressed="true">Live hand</button>
-          <button class="mode-option" id="fixedPitchButton" type="button" aria-pressed="false">Fixed +7</button>
-          <button class="mode-option" id="dryMicButton" type="button" aria-pressed="false">Dry mic</button>
-        </div>
         <label class="slider-line" for="pitchMix">
           <span>Voice mix</span>
           <input id="pitchMix" type="range" min="0" max="1" step="0.01" value="1" />
@@ -203,13 +217,14 @@ app.innerHTML = `
       </section>
 
       <p class="hint">
-        Keep your hand on the center line for normal voice. Raise it to pitch up, lower it to pitch down. Headphones strongly recommended.
+        Pitch mode follows one hand. Advanced mode splits the frame into tone and texture lanes. Headphones strongly recommended.
       </p>
     </aside>
   </main>
 `;
 
 const startButton = getElement<HTMLButtonElement>("startButton");
+const appShell = getElement<HTMLElement>("appShell");
 const video = getElement<HTMLVideoElement>("video");
 const overlay = getElement<HTMLCanvasElement>("overlay");
 const meter = getElement<HTMLCanvasElement>("meter");
@@ -225,9 +240,10 @@ const loudnessReadout = getElement<HTMLElement>("loudnessReadout");
 const averageLufsReadout = getElement<HTMLElement>("averageLufsReadout");
 const maxLufsReadout = getElement<HTMLElement>("maxLufsReadout");
 const peakReadout = getElement<HTMLElement>("peakReadout");
-const livePitchButton = getElement<HTMLButtonElement>("livePitchButton");
-const fixedPitchButton = getElement<HTMLButtonElement>("fixedPitchButton");
-const dryMicButton = getElement<HTMLButtonElement>("dryMicButton");
+const pitchModeButton = getElement<HTMLButtonElement>("pitchModeButton");
+const advancedModeButton = getElement<HTMLButtonElement>("advancedModeButton");
+const textureCluster = getElement<HTMLElement>("textureCluster");
+const toneHelp = getElement<HTMLElement>("toneHelp");
 
 const readouts = {
   pitch: getElement<HTMLElement>("pitchReadout"),
@@ -246,7 +262,7 @@ let audioEngine: GestureAudioEngine | undefined;
 let mediaStream: MediaStream | undefined;
 let animationStarted = false;
 let isLive = false;
-let pitchSource: "live" | "fixed" | "dry" = "live";
+let controlMode: ControlMode = "pitch";
 let pitchMixAmount = 1;
 let previousPalms = new Map<number, { x: number; y: number; at: number }>();
 let smoothedControls = { ...neutralControls };
@@ -276,29 +292,25 @@ inputGain.addEventListener("input", () => {
 pitchMix.addEventListener("input", () => {
   pitchMixAmount = Number(pitchMix.value);
   resetMeterState();
-  updateDiagnosticReadouts();
+  updateModeReadouts();
 });
 
-livePitchButton.addEventListener("click", () => {
-  setPitchSource("live");
+pitchModeButton.addEventListener("click", () => {
+  setControlMode("pitch");
 });
 
-fixedPitchButton.addEventListener("click", () => {
-  setPitchSource("fixed");
-});
-
-dryMicButton.addEventListener("click", () => {
-  setPitchSource("dry");
+advancedModeButton.addEventListener("click", () => {
+  setControlMode("advanced");
 });
 
 startButton.innerHTML = `<span class="button-icon" aria-hidden="true">&gt;</span><span>Start camera + mic</span>`;
+setControlMode("pitch");
 
-function setPitchSource(source: "live" | "fixed" | "dry") {
-  pitchSource = source;
+function setControlMode(mode: ControlMode) {
+  controlMode = mode;
   const buttons = [
-    [livePitchButton, source === "live"],
-    [fixedPitchButton, source === "fixed"],
-    [dryMicButton, source === "dry"]
+    [pitchModeButton, mode === "pitch"],
+    [advancedModeButton, mode === "advanced"]
   ] as const;
 
   for (const [button, active] of buttons) {
@@ -306,8 +318,14 @@ function setPitchSource(source: "live" | "fixed" | "dry") {
     button.setAttribute("aria-pressed", String(active));
   }
 
+  appShell.classList.toggle("is-pitch-mode", mode === "pitch");
+  appShell.classList.toggle("is-advanced-mode", mode === "advanced");
+  textureCluster.hidden = mode !== "advanced";
+  toneHelp.textContent = mode === "pitch" ? "Raise or lower one hand" : "Left lane controls pitch and tone";
+  smoothedControls = { ...neutralControls };
+  audioEngine?.applyControls(smoothedControls);
   resetMeterState();
-  updateDiagnosticReadouts();
+  updateModeReadouts();
 }
 
 function resetMeterState() {
@@ -317,10 +335,13 @@ function resetMeterState() {
   updateLoudnessReadouts(-70, -70, -70, -70);
 }
 
-function updateDiagnosticReadouts() {
-  readouts.pitch.textContent = pitchSource === "fixed" ? "7 st" : "0 st";
-  readouts.shift.textContent = `${Math.round((pitchSource === "dry" ? 0 : pitchMixAmount) * 100)}%`;
-  readouts.brightness.textContent = pitchSourceLabel();
+function updateModeReadouts() {
+  readouts.pitch.textContent = "0 st";
+  readouts.shift.textContent = `${Math.round(pitchMixAmount * 100)}%`;
+  readouts.brightness.textContent = controlModeLabel();
+  readouts.robot.textContent = "0%";
+  readouts.echo.textContent = "0%";
+  readouts.distortion.textContent = "0%";
 }
 
 async function toggleExperience() {
@@ -481,6 +502,11 @@ function mapHandsToRoles(result: HandLandmarkerResult, now: number): HandRole[] 
     return [];
   }
 
+  if (controlMode === "pitch") {
+    const primary = [...hands].sort((a, b) => Math.abs(a.x - 0.5) - Math.abs(b.x - 0.5))[0];
+    return [{ ...primary, name: "tone" }];
+  }
+
   const sorted = [...hands].sort((a, b) => a.x - b.x);
   if (sorted.length === 1) {
     const only = sorted[0];
@@ -497,31 +523,40 @@ function controlsFromHands(roles: HandRole[]): GestureControls {
   const controls = { ...neutralControls };
   controls.activity = roles.length > 0 ? 1 : 0;
 
-  if (pitchSource === "dry") {
-    controls.pitchWet = 0;
-    return controls;
-  }
+  if (controlMode === "pitch") {
+    const pitchHand = roles[0];
+    if (!pitchHand) {
+      return controls;
+    }
 
-  if (pitchSource === "fixed") {
-    controls.pitchSemitones = 7;
+    const vertical = centeredAxis(1 - pitchHand.y, 0.5, LANE_EFFECT_HALF_HEIGHT);
+    controls.pitchSemitones = vertical * 12;
     controls.pitchWet = pitchMixAmount;
     return controls;
   }
 
-  const pitchHand = roles[0];
-  if (!pitchHand) {
-    return controls;
+  const toneHand = roles.find((role) => role.name === "tone");
+  const textureHand = roles.find((role) => role.name === "texture");
+
+  if (toneHand) {
+    const toneVertical = centeredAxis(1 - toneHand.y, 0.5, LANE_EFFECT_HALF_HEIGHT);
+    const toneHorizontal = centeredAxis(toneHand.x, TONE_CENTER_X, LANE_EFFECT_HALF_WIDTH);
+    controls.pitchSemitones = toneVertical * 12;
+    controls.pitchWet = pitchMixAmount;
+    controls.brightnessHz = lerp(3600, 15000, (toneHorizontal + 1) * 0.5);
+    controls.vibrato = toneHand.pinch * 0.75;
   }
 
-  const vertical = centeredAxis(1 - pitchHand.y, 0.5, LANE_EFFECT_HALF_HEIGHT);
-  controls.pitchSemitones = vertical * 12;
-  controls.pitchWet = pitchMixAmount;
-  controls.brightnessHz = neutralControls.brightnessHz;
-  controls.robotAmount = 0;
-  controls.echoAmount = 0;
-  controls.distortion = 0;
-  controls.vibrato = 0;
-  controls.tremolo = 0;
+  if (textureHand) {
+    const textureVertical = centeredAxis(1 - textureHand.y, 0.5, LANE_EFFECT_HALF_HEIGHT);
+    const textureHorizontal = centeredAxis(textureHand.x, TEXTURE_CENTER_X, LANE_EFFECT_HALF_WIDTH);
+    controls.robotAmount = Math.max(0, textureVertical);
+    controls.echoAmount = Math.max(0, -textureVertical);
+    controls.distortion = Math.abs(textureHorizontal);
+    controls.robotRateHz = lerp(28, 82, Math.max(0, textureHorizontal));
+    controls.tremolo = clamp(textureHand.speed * 0.7 + textureHand.pinch * 0.45, 0, 1);
+  }
+
   return controls;
 }
 
@@ -566,10 +601,13 @@ function drawHands(result: HandLandmarkerResult, roles: HandRole[]) {
   overlayContext.lineJoin = "round";
 
   for (const role of roles) {
-    const color = "#f2c94c";
+    const color = role.name === "tone" ? "#00d0a2" : "#ff7a59";
     overlayContext.strokeStyle = color;
     overlayContext.fillStyle = color;
     drawHandSkeleton(role.landmarks);
+    if (controlMode === "advanced" && role.name === "texture") {
+      drawPinchHalo(role);
+    }
   }
 
   if (result.landmarks.length === 0) {
@@ -799,29 +837,15 @@ function formatLufs(lufs: number) {
 function updateReadouts(controls: GestureControls, handCount: number) {
   readouts.pitch.textContent = `${Math.round(controls.pitchSemitones)} st`;
   readouts.shift.textContent = `${Math.round(controls.pitchWet * 100)}%`;
-  readouts.brightness.textContent = pitchSourceLabel();
+  readouts.brightness.textContent = controlMode === "advanced" ? `${Math.round(controls.brightnessHz / 100) / 10} kHz` : controlModeLabel();
   readouts.robot.textContent = `${Math.round(controls.robotAmount * 100)}%`;
   readouts.echo.textContent = `${Math.round(controls.echoAmount * 100)}%`;
   readouts.distortion.textContent = `${Math.round(controls.distortion * 100)}%`;
-  if (pitchSource === "fixed") {
-    trackingStatus.textContent = "Fixed pitch test";
-  } else if (pitchSource === "dry") {
-    trackingStatus.textContent = "Dry mic test";
-  } else {
-    trackingStatus.textContent = handCount === 0 ? "Searching for hands" : `${handCount} hand${handCount === 1 ? "" : "s"} tracked`;
-  }
+  trackingStatus.textContent = handCount === 0 ? "Searching for hands" : `${controlModeLabel()}: ${handCount} hand${handCount === 1 ? "" : "s"} tracked`;
 }
 
-function pitchSourceLabel() {
-  if (pitchSource === "dry") {
-    return "Dry mic";
-  }
-
-  if (pitchSource === "fixed") {
-    return "Fixed +7";
-  }
-
-  return "Live hand";
+function controlModeLabel() {
+  return controlMode === "pitch" ? "Simple pitch" : "Advanced";
 }
 
 function updateFps(now: number) {

@@ -4,18 +4,12 @@ A browser-based performance tool that maps webcam hand motion to live microphone
 
 ## Controls
 
-- The app is pitch-only.
-- Put one hand near the center ring for normal voice.
-- Raise your hand to pitch up.
-- Lower your hand to pitch down.
-- The dashed box shows the full pitch range.
-
-## Diagnose Pitch Quality
-
-- Dry mic: verifies the microphone and output path are clean.
-- Fixed +7: tests the pitch shifter without camera movement.
-- Live hand: tests camera-driven pitch changes.
-- Voice mix: controls how much shifted voice is applied.
+- Pitch mode is the default: put one hand near the center ring for normal voice.
+- Raise your hand to pitch up, or lower it to pitch down.
+- Advanced mode splits the camera into two lanes.
+- The left lane controls pitch, brightness, and vibrato.
+- The right lane controls robot tone, echo, grit, and tremolo.
+- Voice mix controls how much shifted voice is applied.
 
 ## Run
 

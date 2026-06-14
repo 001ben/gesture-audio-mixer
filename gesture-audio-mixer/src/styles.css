@@ -149,6 +149,17 @@ h2 {
   pointer-events: none;
 }
 
+.pitch-guide {
+  position: absolute;
+  inset: 0;
+}
+
+.shell.is-pitch-mode .lane-guide,
+.shell.is-advanced-mode .pitch-guide,
+.shell.is-advanced-mode .center-guide::before {
+  display: none;
+}
+
 .center-guide::before {
   position: absolute;
   top: 28%;
@@ -499,6 +510,10 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.24);
+}
+
+.app-mode-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .mode-option {
