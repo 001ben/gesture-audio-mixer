@@ -11,6 +11,9 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -30,7 +33,7 @@ jobs:
           cache-dependency-path: gesture-audio-mixer/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --prefix gesture-audio-mixer
+        run: npm install --prefix gesture-audio-mixer
 
       - name: Build
         run: npm run build --prefix gesture-audio-mixer
