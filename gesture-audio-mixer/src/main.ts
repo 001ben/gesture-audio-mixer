@@ -52,6 +52,12 @@ type LoudnessPoint = {
   meanSquare: number;
 };
 
+type RecordedClip = {
+  blob: Blob;
+  mimeType: string;
+  durationMs: number;
+};
+
 const LOUDNESS_WINDOW_MS = 10000;
 
 const neutralControls: GestureControls = {
@@ -214,10 +220,27 @@ app.innerHTML = `
           <span>Output</span>
           <input id="outputGain" type="range" min="0" max="1" step="0.01" value="0.72" />
         </label>
+        <div class="recording-panel">
+          <div class="recording-actions">
+            <button class="secondary-button record-button" id="recordButton" type="button" disabled>
+              <span class="button-icon" aria-hidden="true">REC</span>
+              <span>Record clip</span>
+            </button>
+            <button class="secondary-button record-button" id="stopRecordingButton" type="button" disabled>
+              <span class="button-icon" aria-hidden="true">■</span>
+              <span>Stop</span>
+            </button>
+          </div>
+          <audio class="recording-playback" id="recordingPlayback" controls hidden></audio>
+          <div class="recording-footer">
+            <span id="recordingStatus">No clip recorded</span>
+            <a id="downloadRecording" href="#" download="gesture-output.webm" hidden>Download</a>
+          </div>
+        </div>
       </section>
 
       <p class="hint">
-        Pitch mode follows one hand. Advanced mode splits the frame into tone and texture lanes. Headphones strongly recommended.
+        Pitch mode follows one hand. Advanced mode splits the frame into tone and texture lanes. Turn monitor output off to record silently.
       </p>
     </aside>
 
@@ -250,6 +273,11 @@ const monitorToggle = getElement<HTMLInputElement>("monitorToggle");
 const outputGain = getElement<HTMLInputElement>("outputGain");
 const pitchMix = getElement<HTMLInputElement>("pitchMix");
 const inputGain = getElement<HTMLInputElement>("inputGain");
+const recordButton = getElement<HTMLButtonElement>("recordButton");
+const stopRecordingButton = getElement<HTMLButtonElement>("stopRecordingButton");
+const recordingPlayback = getElement<HTMLAudioElement>("recordingPlayback");
+const recordingStatus = getElement<HTMLElement>("recordingStatus");
+const downloadRecording = getElement<HTMLAnchorElement>("downloadRecording");
 const loudnessReadout = getElement<HTMLElement>("loudnessReadout");
 const averageLufsReadout = getElement<HTMLElement>("averageLufsReadout");
 const maxLufsReadout = getElement<HTMLElement>("maxLufsReadout");
@@ -289,6 +317,7 @@ let smoothedPeakDb = -70;
 let loudnessHistory: LoudnessPoint[] = [];
 let lastFrameAt = performance.now();
 let fpsAverage = 0;
+let recordingUrl: string | undefined;
 
 startButton.addEventListener("click", () => {
   void toggleExperience();
@@ -313,6 +342,14 @@ outputGain.addEventListener("input", () => {
   audioEngine?.setOutputGain(Number(outputGain.value));
 });
 
+recordButton.addEventListener("click", () => {
+  startRecordingClip();
+});
+
+stopRecordingButton.addEventListener("click", () => {
+  void stopRecordingClip();
+});
+
 inputGain.addEventListener("input", () => {
   audioEngine?.setInputGain(Number(inputGain.value));
   resetMeterState();
@@ -334,6 +371,7 @@ advancedModeButton.addEventListener("click", () => {
 
 startButton.innerHTML = `<span class="button-icon" aria-hidden="true">&gt;</span><span>Start camera + mic</span>`;
 setControlMode("pitch");
+updateRecordingControls();
 
 function setControlMode(mode: ControlMode) {
   controlMode = mode;
@@ -429,6 +467,7 @@ async function startExperience() {
     audioEngine.setOutputGain(Number(outputGain.value));
     audioEngine.setInputGain(Number(inputGain.value));
     audioEngine.setMonitoring(monitorToggle.checked);
+    updateRecordingControls();
 
     stageEmpty.hidden = true;
     audioStatus.textContent = "Audio engine live";
@@ -464,8 +503,12 @@ async function stopExperience() {
 
 async function releaseLiveResources() {
   isLive = false;
+  if (audioEngine?.isRecording()) {
+    await stopRecordingClip();
+  }
   await audioEngine?.dispose();
   audioEngine = undefined;
+  updateRecordingControls();
 
   mediaStream?.getTracks().forEach((track) => {
     track.stop();
@@ -489,6 +532,102 @@ function resetLiveUi() {
   fpsStatus.textContent = "0 fps";
   startButton.disabled = false;
   startButton.innerHTML = `<span class="button-icon" aria-hidden="true">&gt;</span><span>Start camera + mic</span>`;
+  updateRecordingControls();
+}
+
+function startRecordingClip() {
+  if (!audioEngine) {
+    recordingStatus.textContent = "Start camera + mic first";
+    updateRecordingControls();
+    return;
+  }
+
+  try {
+    clearRecordingClip();
+    audioEngine.startRecording();
+    recordingStatus.textContent = "Recording processed output";
+  } catch (error) {
+    console.error(error);
+    recordingStatus.textContent = error instanceof Error ? error.message : "Could not start recording";
+  } finally {
+    updateRecordingControls();
+  }
+}
+
+async function stopRecordingClip() {
+  if (!audioEngine?.isRecording()) {
+    updateRecordingControls();
+    return;
+  }
+
+  stopRecordingButton.disabled = true;
+  recordingStatus.textContent = "Finishing clip";
+
+  try {
+    const clip = await audioEngine.stopRecording();
+    showRecordedClip(clip);
+  } catch (error) {
+    console.error(error);
+    recordingStatus.textContent = error instanceof Error ? error.message : "Could not save recording";
+  } finally {
+    updateRecordingControls();
+  }
+}
+
+function showRecordedClip(clip: RecordedClip) {
+  clearRecordingClip();
+  recordingUrl = URL.createObjectURL(clip.blob);
+  const extension = recordingFileExtension(clip.mimeType);
+  recordingPlayback.src = recordingUrl;
+  recordingPlayback.hidden = false;
+  downloadRecording.href = recordingUrl;
+  downloadRecording.download = `gesture-output-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+  downloadRecording.hidden = false;
+  recordingStatus.textContent = `Clip ready (${formatDuration(clip.durationMs)})`;
+}
+
+function clearRecordingClip() {
+  if (recordingUrl) {
+    URL.revokeObjectURL(recordingUrl);
+    recordingUrl = undefined;
+  }
+  recordingPlayback.removeAttribute("src");
+  recordingPlayback.load();
+  recordingPlayback.hidden = true;
+  downloadRecording.removeAttribute("href");
+  downloadRecording.hidden = true;
+}
+
+function updateRecordingControls() {
+  const recording = audioEngine?.isRecording() ?? false;
+  const canRecord = Boolean(isLive && audioEngine?.canRecord());
+  recordButton.disabled = !canRecord || recording;
+  stopRecordingButton.disabled = !recording;
+
+  if (!isLive && !recordingUrl) {
+    recordingStatus.textContent = "No clip recorded";
+  } else if (isLive && !audioEngine?.canRecord()) {
+    recordingStatus.textContent = "Recording unavailable in this browser";
+  }
+}
+
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function recordingFileExtension(mimeType: string) {
+  if (mimeType.includes("mp4")) {
+    return "m4a";
+  }
+
+  if (mimeType.includes("ogg")) {
+    return "ogg";
+  }
+
+  return "webm";
 }
 
 async function createHandLandmarker() {
@@ -877,6 +1016,22 @@ function formatLufs(lufs: number) {
   return `${Math.round(lufs)} LUFS`;
 }
 
+function preferredRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4"
+  ];
+
+  return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
 function updateReadouts(controls: GestureControls, handCount: number) {
   readouts.pitch.textContent = `${Math.round(controls.pitchSemitones)} st`;
   readouts.shift.textContent = `${Math.round(controls.pitchWet * 100)}%`;
@@ -939,6 +1094,10 @@ class GestureAudioEngine {
   private master!: GainNode;
   private outputVolume!: GainNode;
   private monitorGate!: GainNode;
+  private recordingDestination!: MediaStreamAudioDestinationNode;
+  private recorder: MediaRecorder | undefined;
+  private recordedChunks: Blob[] = [];
+  private recordingStartedAt = 0;
   private analyser!: AnalyserNode;
   private loudnessHighpass!: BiquadFilterNode;
   private loudnessShelf!: BiquadFilterNode;
@@ -987,6 +1146,7 @@ class GestureAudioEngine {
     this.master = this.context.createGain();
     this.outputVolume = this.context.createGain();
     this.monitorGate = this.context.createGain();
+    this.recordingDestination = this.context.createMediaStreamDestination();
     this.analyser = this.context.createAnalyser();
     this.loudnessHighpass = this.context.createBiquadFilter();
     this.loudnessShelf = this.context.createBiquadFilter();
@@ -1057,6 +1217,7 @@ class GestureAudioEngine {
     this.master.connect(this.outputVolume);
     this.loudnessHighpass.connect(this.loudnessShelf);
     this.loudnessShelf.connect(this.loudnessAnalyser);
+    this.outputVolume.connect(this.recordingDestination);
     this.outputVolume.connect(this.monitorGate);
     this.monitorGate.connect(this.context.destination);
 
@@ -1124,6 +1285,92 @@ class GestureAudioEngine {
       return;
     }
     setParam(this.inputGain.gain, clamp(value, 0.5, 4), this.context.currentTime);
+  }
+
+  canRecord() {
+    return typeof MediaRecorder !== "undefined" && Boolean(this.recordingDestination);
+  }
+
+  isRecording() {
+    return this.recorder?.state === "recording";
+  }
+
+  startRecording() {
+    if (!this.canRecord()) {
+      throw new Error("Recording unavailable in this browser");
+    }
+
+    if (this.disposed || this.context.state === "closed") {
+      throw new Error("Audio engine is not running");
+    }
+
+    if (this.isRecording()) {
+      return;
+    }
+
+    const mimeType = preferredRecordingMimeType();
+    this.recordedChunks = [];
+    this.recorder = new MediaRecorder(
+      this.recordingDestination.stream,
+      mimeType ? { mimeType } : undefined
+    );
+    this.recordingStartedAt = performance.now();
+
+    this.recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) {
+        this.recordedChunks.push(event.data);
+      }
+    });
+
+    this.recorder.start();
+  }
+
+  stopRecording(): Promise<RecordedClip> {
+    if (!this.recorder || this.recorder.state !== "recording") {
+      return Promise.reject(new Error("No recording in progress"));
+    }
+
+    const recorder = this.recorder;
+    const startedAt = this.recordingStartedAt;
+
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        recorder.removeEventListener("stop", handleStop);
+        recorder.removeEventListener("error", handleError);
+      };
+
+      const handleStop = () => {
+        cleanup();
+        const mimeType = recorder.mimeType || preferredRecordingMimeType() || "audio/webm";
+        const blob = new Blob(this.recordedChunks, { type: mimeType });
+        this.recorder = undefined;
+        this.recordedChunks = [];
+
+        if (blob.size === 0) {
+          reject(new Error("Recording was empty"));
+          return;
+        }
+
+        resolve({
+          blob,
+          mimeType,
+          durationMs: performance.now() - startedAt
+        });
+      };
+
+      const handleError = (event: Event) => {
+        cleanup();
+        this.recorder = undefined;
+        this.recordedChunks = [];
+        const recorderError = (event as Event & { error?: DOMException }).error;
+        reject(recorderError ?? new Error("Recording failed"));
+      };
+
+      recorder.addEventListener("stop", handleStop);
+      recorder.addEventListener("error", handleError);
+      recorder.requestData();
+      recorder.stop();
+    });
   }
 
   getPitchMetrics() {

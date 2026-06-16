@@ -10,6 +10,7 @@ A browser-based performance tool that maps webcam hand motion to live microphone
 - The left lane controls pitch, brightness, and vibrato.
 - The right lane controls robot tone, echo, grit, and tremolo.
 - Voice mix controls how much shifted voice is applied.
+- Turn Monitor output off to mute live speakers, then use Record clip to capture the processed output and play it back in the browser.
 - The app warns before starting if live monitoring is on, because microphone monitoring through speakers can create loud feedback.
 
 ## Run
