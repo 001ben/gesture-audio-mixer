@@ -467,7 +467,6 @@ async function startExperience() {
     audioEngine.setOutputGain(Number(outputGain.value));
     audioEngine.setInputGain(Number(inputGain.value));
     audioEngine.setMonitoring(monitorToggle.checked);
-    updateRecordingControls();
 
     stageEmpty.hidden = true;
     audioStatus.textContent = "Audio engine live";
@@ -481,6 +480,7 @@ async function startExperience() {
     }
 
     isLive = true;
+    updateRecordingControls();
     startButton.disabled = false;
     startButton.innerHTML = `<span class="button-icon" aria-hidden="true">x</span><span>Stop feed</span>`;
   } catch (error) {
